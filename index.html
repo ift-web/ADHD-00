@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <!-- iOS 手機 App 設定 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ADHD 管理">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%237c6a56%22 rx=%2220%22/><text x=%2250%22 y=%2268%22 font-size=%2260%22 text-anchor=%22middle%22 fill=%22white%22>⭐</text></svg>">
+  
+  <title>ADHD 日常管理工具</title>
+
+  <!-- Android 手機 App 設定 (Manifest) -->
+  <script>
+    const manifest = {
+      "name": "ADHD 日常管理工具",
+      "short_name": "ADHD 管理",
+      "start_url": ".",
+      "display": "standalone",
+      "background_color": "#f7f4ef",
+      "theme_color": "#7c6a56",
+      "icons": [{
+        "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%237c6a56%22/><text x=%2250%22 y=%2268%22 font-size=%2260%22 text-anchor=%22middle%22 fill=%22white%22>⭐</text></svg>",
+        "sizes": "192x192",
+        "type": "image/svg+xml"
+      }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+    document.write(`<link rel="manifest" href="${URL.createObjectURL(blob)}">`);
+  </script>
+
+  <!-- 引入 React 與 Babel (不需安裝環境即可執行) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { margin: 0; padding: 0; background-color: #f7f4ef; -webkit-tap-highlight-color: transparent; }
+    /* 隱藏網頁預設滾動條讓它更像 App */
+    ::-webkit-scrollbar { display: none; }
+    
+    /* 移除 input type="number" 的上下箭頭 */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none; 
+      margin: 0; 
+    }
+    input[type=number] {
+      -moz-appearance: textfield; /* Firefox */
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const P = {
+      bg: "#f7f4ef", card: "#fffdf9", border: "#e2d9cc",
+      text: "#3a2e24", sub: "#8c7b6b", accent: "#7c6a56",
+      danger: "#c0613a", green: "#5a8a6a", tag: "#ede8e0", orange: "#a06030",
+    };
+    const PRIORITY = { high: { label: "緊急", color: "#c0613a", bg: "#fbe9e2", emoji: "🔴" }, medium: { label: "普通", color: "#a06030", bg: "#fef3e2", emoji: "🟡" }, low: { label: "之後", color: "#5a8a6a", bg: "#e8f2ec", emoji: "🟢" } };
+    const SORT_ORDER = { high: 0, medium: 1, low: 2 };
+    const PERIOD_LABEL = { daily: "每日", weekly: "每週", monthly: "每月", yearly: "每年" };
+    const WEEKDAYS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
+    const MONTHDAYS = Array.from({ length: 31 }, (_, i) => i + 1);
+    const MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+    const ICONS = ["⭐", "🏃", "📖", "🐶", "🌱", "🍱", "💧", "🛁", "🪴", "📝", "🎵", "🛒", "💪", "🧘", "📞", "🧴", "🗂️", "🪟", "💡", "🔧", "🧺", "🗑️", "🧹", "📦", "💳", "💊", "✂️", "🧦", "🎂", "📋", "🏥", "✈️", "🔑", "💰", "🪪"];
+
+    const INIT_ALARM_PRESETS = [
+      { id: "p_1", label: "起床提醒", type: "fixed", time: "08:00" },
+      { id: "p_2", label: "吃藥", type: "fixed", time: "09:00" },
+      { id: "p_3", label: "喝水", type: "interval", interval: 2, start: "09:00", end: "21:00" },
+      { id: "p_4", label: "睡前整理", type: "fixed", time: "22:30" }
+    ];
+
+    const INIT_ROUTINES = [
+      { id: "laundry", icon: "🧺", label: "洗衣服", period: "weekly", weekdays: ["週六"], monthdays: [], month: null },
+      { id: "trash", icon: "🗑️", label: "倒垃圾", period: "weekly", weekdays: ["週三"], monthdays: [], month: null },
+      { id: "clean", icon: "🧹", label: "打掃", period: "weekly", weekdays: ["週六"], monthdays: [], month: null },
+      { id: "boxes", icon: "📦", label: "清空箱子", period: "weekly", weekdays: ["週日"], monthdays: [], month: null },
+      { id: "bills", icon: "💳", label: "繳費", period: "monthly", weekdays: [], monthdays: [5], month: null },
+      { id: "meds", icon: "💊", label: "補藥", period: "monthly", weekdays: [], monthdays: [1], month: null },
+      { id: "haircut", icon: "✂️", label: "剪頭髮", period: "monthly", weekdays: [], monthdays: [15], month: null },
+      { id: "socks", icon: "🧦", label: "洗襪子", period: "daily", weekdays: [], monthdays: [], month: null },
+      { id: "tax", icon: "📋", label: "報稅", period: "yearly", weekdays: [], monthdays: [], month: "5月" },
+    ];
+
+    // 新增：初始專注模板資料
+    const INIT_FOCUS_TEMPLATES = [
+      { id: "f_1", icon: "🔋", title: "極簡生存洗沐", desc: "電力10%專用。不要管細節，有弄濕就算贏。", steps: [
+        { id: "s_1", text: "脫衣服進浴室", duration: 0 },
+        { id: "s_2", text: "重點部位清潔 (腋下/私密)", duration: 2 },
+        { id: "s_3", text: "洗臉與刷牙", duration: 5 }
+      ]},
+      { id: "f_2", icon: "🚿", title: "標準洗沐", desc: "日常下班適用。限制洗頭與保養時間，防止完美主義發作。", steps: [
+        { id: "s_4", text: "卸妝與洗臉", duration: 3 },
+        { id: "s_5", text: "洗頭", duration: 5 },
+        { id: "s_6", text: "洗澡", duration: 5 }
+      ]},
+      { id: "f_3", icon: "🌙", title: "夜間護膚與刷牙", desc: "整合電動牙刷與酸類保養吸收時間的精密排程。", steps: [
+        { id: "s_7", text: "塗抹酸類精華", duration: 1 },
+        { id: "s_8", text: "電動刷牙 (等待吸收)", duration: 2 },
+        { id: "s_9", text: "後續乳液保濕", duration: 1 }
+      ]}
+    ];
+
+    const safeNotify = (title) => {
+      try {
+        if (typeof window === "undefined") return;
+        if (!("Notification" in window)) return;
+        if (window.Notification.permission === "granted") {
+          new window.Notification("⏰ " + title, { body: "ADHD 管理提醒" });
+        }
+      } catch (e) { }
+    };
+    const safeRequestNotifPerm = () => {
+      try {
+        if (typeof window !== "undefined" && "Notification" in window && window.Notification.permission === "default") {
+          window.Notification.requestPermission();
+        }
+      } catch (e) { }
+    };
+
+    const emptyDraft = (period = "weekly") => ({
+      label: "", icon: "⭐", period,
+      weekdays: period === "weekly" ? ["週一"] : [],
+      monthdays: period === "monthly" ? [1] : [],
+      month: period === "yearly" ? "1月" : null,
+    });
+
+    const emptyFocusDraft = () => ({
+      id: `f_${Date.now()}`, icon: "⏳", title: "", desc: "", steps: []
+    });
+
+    // 更新 defaultData 加入 focusTemplates
+    const defaultData = { anchor: "", deadlines: [], leaveTime: "", prepMinutes: 40, pendingItems: [], alarms: [], alarmPresets: INIT_ALARM_PRESETS, lastClearReminder: null, routines: INIT_ROUTINES, focusTemplates: INIT_FOCUS_TEMPLATES };
+
+    const loadData = () => {
+      try {
+        const raw = localStorage.getItem("adhd_v8");
+        if (!raw) return defaultData;
+        const p = JSON.parse(raw);
+        if (!p.routines) p.routines = INIT_ROUTINES;
+        // 確保舊資料升級時有 focusTemplates
+        if (!p.focusTemplates) p.focusTemplates = INIT_FOCUS_TEMPLATES; 
+        p.routines = p.routines.map(r => {
+          let monthdays = r.monthdays || [];
+          if (r.monthday) { monthdays = [r.monthday]; delete r.monthday; }
+          return {
+            ...r,
+            weekdays: r.weekdays || (r.weekday ? [r.weekday] : []),
+            monthdays,
+            month: r.month || null,
+          };
+        });
+        if (!p.alarmPresets) p.alarmPresets = INIT_ALARM_PRESETS;
+        return { ...defaultData, ...p };
+      } catch (e) { return defaultData; }
+    };
+    const saveData = (d) => { try { localStorage.setItem("adhd_v8", JSON.stringify(d)); } catch (e) { } };
+
+    const st = {
+      app: { minHeight: "100vh", background: P.bg, fontFamily: "'Georgia', serif", color: P.text, paddingBottom: 60 },
+      header: { padding: "calc(env(safe-area-inset-top, 0px) + 28px) 24px 16px", borderBottom: `1px solid ${P.border}`, background: P.card },
+      sec: { margin: "20px 16px 0", background: P.card, borderRadius: 12, border: `1px solid ${P.border}`, overflow: "hidden" },
+      sH: { padding: "14px 18px 10px", borderBottom: `1px solid ${P.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" },
+      sT: { fontSize: 13, fontWeight: "bold", color: P.sub, letterSpacing: 1, textTransform: "uppercase" },
+      sB: { padding: "14px 18px" },
+      inp: { width: "100%", border: `1px solid ${P.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 16, background: P.bg, color: P.text, outline: "none", boxSizing: "border-box", fontFamily: "inherit" },
+      btn: { border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 14, cursor: "pointer", fontFamily: "inherit" },
+      row: { display: "flex", gap: 8, alignItems: "center" },
+    };
+
+    const DayBadge = ({ n }) => (
+      <span style={{ background: n <= 1 ? "#fbe9e2" : n <= 3 ? "#fef3e2" : P.tag, color: n <= 1 ? P.danger : n <= 3 ? P.orange : P.sub, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: "bold", whiteSpace: "nowrap" }}>
+        {n >= 0 ? `${n} 天` : "已過期"}
+      </span>
+    );
+
+    const PriBadge = ({ value, onChange }) => {
+      const [open, setOpen] = useState(false);
+      const pv = PRIORITY[value] || PRIORITY.medium;
+      const ref = useRef();
+      useEffect(() => {
+        const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener("mousedown", h);
+        return () => document.removeEventListener("mousedown", h);
+      }, []);
+      return (
+        <div ref={ref} style={{ position: "relative", display: "inline-block", flexShrink: 0 }}>
+          <button onClick={() => setOpen(o => !o)}
+            style={{ ...st.btn, background: pv.bg, color: pv.color, padding: "5px 10px", fontSize: 12, fontWeight: "bold", border: `1.5px solid ${pv.color}`, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+            {pv.emoji} {pv.label} <span style={{ fontSize: 10, opacity: 0.7 }}>▴</span>
+          </button>
+          {open && (
+            <div style={{ position: "absolute", bottom: "110%", left: 0, zIndex: 100, background: P.card, border: `1px solid ${P.border}`, borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.12)", overflow: "hidden", minWidth: 90 }}>
+              {Object.entries(PRIORITY).map(([k, v]) => (
+                <button key={k} onClick={() => { onChange(k); setOpen(false); }}
+                  style={{ ...st.btn, display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, background: k === value ? v.bg : P.card, color: k === value ? v.color : P.text, borderRadius: 0, fontWeight: k === value ? "bold" : "normal" }}>
+                  {v.emoji} {v.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const buildPendingText = (r) => {
+      if (r.period === "daily") return r.label;
+      if (r.period === "weekly") { const d = (r.weekdays || []).join("、"); return d ? `${r.label}（${d}）` : r.label; }
+      if (r.period === "monthly") { const md = (r.monthdays || []).join("、"); return md ? `${r.label}（每月 ${md} 號）` : r.label; }
+      if (r.period === "yearly") return r.month ? `${r.label}（每年 ${r.month}）` : r.label;
+      return r.label;
+    };
+    const scheduleHint = (r) => {
+      if (r.period === "daily") return "每日";
+      if (r.period === "weekly") { const d = (r.weekdays || []).join("、"); return d ? `每週 ${d}` : "每週"; }
+      if (r.period === "monthly") { const md = (r.monthdays || []).join("、"); return md ? `每月 ${md} 號` : "每月"; }
+      if (r.period === "yearly") return r.month ? `每年 ${r.month}` : "每年";
+      return "";
+    };
+
+    const RoutineFields = ({ draft, setDraft }) => {
+      const toggleWD = (day) => {
+        const cur = draft.weekdays || [];
+        const next = cur.includes(day) ? cur.filter(d => d !== day) : [...cur, day];
+        setDraft(d => ({ ...d, weekdays: next }));
+      };
+      const toggleMD = (day) => {
+        const cur = draft.monthdays || [];
+        const next = cur.includes(day) ? cur.filter(d => d !== day) : [...cur, day];
+        setDraft(d => ({ ...d, monthdays: next.sort((a,b)=>a-b) }));
+      };
+      const changePeriod = (p) => {
+        setDraft(d => ({
+          ...d, period: p,
+          weekdays: p === "weekly" ? (d.weekdays?.length ? d.weekdays : ["週一"]) : [],
+          monthdays: p === "monthly" ? (d.monthdays?.length ? d.monthdays : [1]) : [],
+          month: p === "yearly" ? (d.month || "1月") : null,
+        }));
+      };
+      
+      return (
+        <div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: P.sub, marginBottom: 6 }}>圖示</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {ICONS.map(ic => (
+                <button key={ic} onClick={() => setDraft(d => ({ ...d, icon: ic }))}
+                  style={{ ...st.btn, padding: "5px 9px", fontSize: 15, background: draft.icon === ic ? P.accent : P.card, color: draft.icon === ic ? "#fff" : P.text, border: `1px solid ${draft.icon === ic ? P.accent : P.border}` }}>
+                  {ic}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ ...st.row, flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            <input style={{ ...st.inp, flex: 2, minWidth: 120 }} placeholder="事項名稱" value={draft.label} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} />
+            <select style={{ ...st.inp, flex: 1, minWidth: 90 }} value={draft.period} onChange={e => changePeriod(e.target.value)}>
+              <option value="daily">每日</option>
+              <option value="weekly">每週</option>
+              <option value="monthly">每月</option>
+              <option value="yearly">每年</option>
+            </select>
+          </div>
+          {draft.period === "weekly" && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: P.sub, marginBottom: 6 }}>哪幾天？（可複選）</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {WEEKDAYS.map(d => {
+                  const sel = (draft.weekdays || []).includes(d); return (
+                    <button key={d} onClick={() => toggleWD(d)}
+                      style={{ ...st.btn, padding: "6px 12px", fontSize: 13, background: sel ? P.accent : P.card, color: sel ? "#fff" : P.text, border: `1px solid ${sel ? P.accent : P.border}`, fontWeight: sel ? "bold" : "normal" }}>
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {draft.period === "monthly" && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: P.sub, marginBottom: 6 }}>每月幾號？（可複選）</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {MONTHDAYS.map(n => {
+                  const sel = (draft.monthdays || []).includes(n);
+                  return (
+                  <button key={n} onClick={() => toggleMD(n)}
+                    style={{ ...st.btn, padding: "5px 8px", fontSize: 13, background: sel ? P.accent : P.card, color: sel ? "#fff" : P.text, border: `1px solid ${sel ? P.accent : P.border}`, minWidth: 36, fontWeight: sel ? "bold" : "normal" }}>
+                    {n}
+                  </button>
+                )})}
+              </div>
+            </div>
+          )}
+          {draft.period === "yearly" && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: P.sub, marginBottom: 6 }}>幾月份？</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {MONTHS.map(m => (
+                  <button key={m} onClick={() => setDraft(f => ({ ...f, month: m }))}
+                    style={{ ...st.btn, padding: "6px 12px", fontSize: 13, background: draft.month === m ? P.accent : P.card, color: draft.month === m ? "#fff" : P.text, border: `1px solid ${draft.month === m ? P.accent : P.border}`, fontWeight: draft.month === m ? "bold" : "normal" }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const App = () => {
+      const [data, setData] = useState(loadData);
+      const [now, setNow] = useState(new Date());
+      const [tab, setTab] = useState("focus"); // 為了預覽，預設開啟專注頁籤
+      const [newDL, setNewDL] = useState({ name: "", date: "" });
+      const [newPending, setNewPending] = useState({ text: "", priority: "medium" });
+      
+      const [newAlarm, setNewAlarm] = useState({ label: "", type: "fixed", time: "", interval: 2, start: "09:00", end: "21:00" });
+      const [editPresetsMode, setEditPresetsMode] = useState(false);
+      const [newPreset, setNewPreset] = useState({ label: "", type: "fixed", time: "", interval: 2, start: "09:00", end: "21:00" });
+      
+      const [newRoutine, setNewRoutine] = useState(emptyDraft("weekly"));
+      const [showRoutineForm, setShowRoutineForm] = useState(false);
+      const [editingId, setEditingId] = useState(null);
+      const [editDraft, setEditDraft] = useState({});
+      
+      // 專注模板相關 State
+      const [editingFocus, setEditingFocus] = useState(null); // null 顯示清單，有物件則顯示編輯器
+      const [focusDraft, setFocusDraft] = useState(null);
+
+      const [firedAlarms, setFiredAlarms] = useState({});
+      const [banner, setBanner] = useState(null);
+      const [showClear, setShowClear] = useState(false);
+      const tickRef = useRef();
+
+      useEffect(() => { tickRef.current = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(tickRef.current); }, []);
+      useEffect(() => { saveData(data); }, [data]);
+      useEffect(() => {
+        if (data.lastClearReminder && (Date.now() - data.lastClearReminder) / 86400000 >= 7 && data.pendingItems.length > 0) setShowClear(true);
+      }, []);
+
+      useEffect(() => {
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        const cur = `${hh}:${mm}`;
+        const toFire = (data.alarms || []).filter(a => a.enabled && a.time === cur && !firedAlarms[`${a.id}_${cur}`]);
+        if (toFire.length === 0) return;
+        toFire.forEach(a => {
+          setFiredAlarms(f => ({ ...f, [`${a.id}_${cur}`]: true }));
+          safeNotify(a.label);
+          setBanner(a.label);
+          setTimeout(() => setBanner(null), 6000);
+        });
+      }, [now]);
+
+      const upd = (p) => setData(d => ({ ...d, ...p }));
+
+      const prepStart = () => {
+        if (!data.leaveTime) return null;
+        const [h, m] = data.leaveTime.split(":").map(Number);
+        const t = ((h * 60 + m - data.prepMinutes) % 1440 + 1440) % 1440;
+        return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+      };
+      const minsToLeave = () => {
+        if (!data.leaveTime) return null;
+        const [h, m] = data.leaveTime.split(":").map(Number);
+        return h * 60 + m - (now.getHours() * 60 + now.getMinutes());
+      };
+      const leaveCD = () => { const d = minsToLeave(); if (d === null) return null; if (d < 0) return "已出發 ✓"; if (d === 0) return "現在出門！"; return d >= 60 ? `${Math.floor(d / 60)} 小時 ${d % 60} 分後出門` : `${d} 分鐘後出門`; };
+      const prepCD = () => { const ps = prepStart(); if (!ps) return null; const [ph, pm] = ps.split(":").map(Number), diff = ph * 60 + pm - (now.getHours() * 60 + now.getMinutes()), mtl = minsToLeave(); if (diff <= 0 && mtl !== null && mtl > 0) return "🔔 現在開始準備！"; if (diff > 0) return `${diff} 分鐘後開始準備`; return null; };
+      const urgent = (() => { const d = minsToLeave(); return d !== null && d <= data.prepMinutes && d > 0; })();
+
+      const daysLeft = (ds) => ds ? Math.ceil((new Date(ds) - new Date(new Date().toDateString())) / 86400000) : null;
+      const addDL = () => { if (!newDL.name.trim() || !newDL.date) return; upd({ deadlines: [...data.deadlines, { id: Date.now(), ...newDL }] }); setNewDL({ name: "", date: "" }); };
+      const sortedDL = [...data.deadlines].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const addPending = (text, priority = "medium") => {
+        const t = (text || newPending.text).trim(); if (!t) return;
+        upd({ pendingItems: [...data.pendingItems, { id: Date.now(), text: t, priority: text ? priority : newPending.priority }] });
+        if (!text) setNewPending({ text: "", priority: "medium" });
+      };
+      const removePending = (id) => upd({ pendingItems: data.pendingItems.filter(p => p.id !== id), lastClearReminder: Date.now() });
+      const updatePriority = (id, priority) => upd({ pendingItems: data.pendingItems.map(p => p.id === id ? { ...p, priority } : p) });
+      const sortedPending = [...data.pendingItems].sort((a, b) => SORT_ORDER[a.priority] - SORT_ORDER[b.priority]);
+      const pendingTexts = data.pendingItems.map(p => p.text);
+
+      // --- 鬧鐘相關 ---
+      const addAlarm = () => {
+        if (!newAlarm.label.trim()) return;
+        safeRequestNotifPerm();
+        let newAlarms = [...(data.alarms || [])];
+        if (newAlarm.type === 'fixed') {
+          if (!newAlarm.time) return;
+          const exists = newAlarms.some(a => a.label === newAlarm.label && a.time === newAlarm.time);
+          if (!exists) newAlarms.push({ id: Date.now() + Math.random(), label: newAlarm.label, time: newAlarm.time, enabled: true });
+        } else if (newAlarm.type === 'interval') {
+          if (!newAlarm.interval || !newAlarm.start || !newAlarm.end) return;
+          let [sh, sm] = newAlarm.start.split(':').map(Number);
+          let [eh, em] = newAlarm.end.split(':').map(Number);
+          let curMin = sh * 60 + sm;
+          let endMin = eh * 60 + em;
+          let intMin = Math.max(0.5, Number(newAlarm.interval)) * 60;
+          while (curMin <= endMin) {
+            let hh = String(Math.floor(curMin / 60)).padStart(2, '0');
+            let mm = String(curMin % 60).padStart(2, '0');
+            let timeStr = `${hh}:${mm}`;
+            const exists = newAlarms.some(a => a.label === newAlarm.label && a.time === timeStr);
+            if (!exists) newAlarms.push({ id: Date.now() + Math.random(), label: newAlarm.label, time: timeStr, enabled: true });
+            curMin += intMin;
+          }
+        }
+        upd({ alarms: newAlarms });
+        setNewAlarm({ label: "", type: "fixed", time: "", interval: 2, start: "09:00", end: "21:00" });
+      };
+      const clearAllAlarms = () => upd({ alarms: [] });
+      const applyPreset = (preset) => {
+        safeRequestNotifPerm();
+        let newAlarms = [...(data.alarms || [])];
+        if (preset.type === 'fixed') {
+          const exists = newAlarms.some(a => a.label === preset.label && a.time === preset.time);
+          if (!exists) newAlarms.push({ id: Date.now() + Math.random(), label: preset.label, time: preset.time, enabled: true });
+        } else if (preset.type === 'interval') {
+          let [sh, sm] = preset.start.split(':').map(Number);
+          let [eh, em] = preset.end.split(':').map(Number);
+          let curMin = sh * 60 + sm;
+          let endMin = eh * 60 + em;
+          let intMin = Math.max(0.5, Number(preset.interval)) * 60; 
+          while (curMin <= endMin) {
+            let hh = String(Math.floor(curMin / 60)).padStart(2, '0');
+            let mm = String(curMin % 60).padStart(2, '0');
+            let timeStr = `${hh}:${mm}`;
+            const exists = newAlarms.some(a => a.label === preset.label && a.time === timeStr);
+            if (!exists) newAlarms.push({ id: Date.now() + Math.random(), label: preset.label, time: timeStr, enabled: true });
+            curMin += intMin;
+          }
+        }
+        upd({ alarms: newAlarms });
+      };
+      const addPreset = () => {
+        if (!newPreset.label.trim()) return;
+        if (newPreset.type === 'fixed' && !newPreset.time) return;
+        if (newPreset.type === 'interval' && (!newPreset.interval || !newPreset.start || !newPreset.end)) return;
+        const p = { id: `p_${Date.now()}`, ...newPreset };
+        upd({ alarmPresets: [...data.alarmPresets, p] });
+        setNewPreset({ label: "", type: newPreset.type, time: "", interval: 2, start: "09:00", end: "21:00" });
+      };
+      const deletePreset = (id) => upd({ alarmPresets: data.alarmPresets.filter(p => p.id !== id) });
+
+      // --- 例行事項相關 ---
+      const grouped = { daily: data.routines.filter(r => r.period === "daily"), weekly: data.routines.filter(r => r.period === "weekly"), monthly: data.routines.filter(r => r.period === "monthly"), yearly: data.routines.filter(r => r.period === "yearly") };
+      const canSave = (d) => { if (!d.label.trim()) return false; if (d.period === "weekly" && (!d.weekdays || d.weekdays.length === 0)) return false; if (d.period === "monthly" && (!d.monthdays || d.monthdays.length === 0)) return false; return true; };
+      const addRoutine = () => { if (!canSave(newRoutine)) return; upd({ routines: [...data.routines, { id: `c_${Date.now()}`, ...newRoutine }] }); setNewRoutine(emptyDraft("weekly")); setShowRoutineForm(false); };
+      const deleteRoutine = (id) => upd({ routines: data.routines.filter(r => r.id !== id) });
+      const startEdit = (r) => { setEditingId(r.id); setEditDraft({ label: r.label, icon: r.icon, period: r.period, weekdays: r.weekdays || [], monthdays: r.monthdays || [1], month: r.month || "1月" }); };
+      const saveEdit = (id) => { if (!canSave(editDraft)) return; upd({ routines: data.routines.map(r => r.id === id ? { ...r, ...editDraft } : r) }); setEditingId(null); };
+
+      // --- 專注模板相關功能 ---
+      const openFocusEditor = (tpl = null) => {
+        const target = tpl ? JSON.parse(JSON.stringify(tpl)) : emptyFocusDraft();
+        setEditingFocus(target.id);
+        setFocusDraft(target);
+      };
+      const closeFocusEditor = () => {
+        setEditingFocus(null);
+        setFocusDraft(null);
+      };
+      const saveFocusDraft = () => {
+        if (!focusDraft.title.trim()) return;
+        let newTpls = [...data.focusTemplates];
+        const existIdx = newTpls.findIndex(t => t.id === focusDraft.id);
+        if (existIdx >= 0) newTpls[existIdx] = focusDraft;
+        else newTpls.push(focusDraft);
+        upd({ focusTemplates: newTpls });
+        closeFocusEditor();
+      };
+      const deleteFocusTemplate = (id) => upd({ focusTemplates: data.focusTemplates.filter(t => t.id !== id) });
+      const focusMoveStep = (idx, direction) => {
+        const steps = [...focusDraft.steps];
+        if (direction === -1 && idx > 0) {
+          [steps[idx - 1], steps[idx]] = [steps[idx], steps[idx - 1]];
+        } else if (direction === 1 && idx < steps.length - 1) {
+          [steps[idx], steps[idx + 1]] = [steps[idx + 1], steps[idx]];
+        }
+        setFocusDraft({ ...focusDraft, steps });
+      };
+      const focusAddStep = () => {
+        setFocusDraft({
+          ...focusDraft,
+          steps: [...focusDraft.steps, { id: `s_${Date.now()}`, text: "", duration: 0 }]
+        });
+      };
+      const focusRemoveStep = (idx) => {
+        const steps = [...focusDraft.steps];
+        steps.splice(idx, 1);
+        setFocusDraft({ ...focusDraft, steps });
+      };
+      const focusUpdateStep = (idx, field, value) => {
+        const steps = [...focusDraft.steps];
+        steps[idx][field] = field === 'duration' ? (parseInt(value) || 0) : value;
+        setFocusDraft({ ...focusDraft, steps });
+      };
+      const getFocusTotalTime = () => focusDraft?.steps.reduce((sum, s) => sum + (parseInt(s.duration) || 0), 0) || 0;
+
+
+      const timeStr = now.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+      const dateStr = now.toLocaleDateString("zh-TW", { month: "long", day: "numeric", weekday: "long" });
+
+      return (
+        <div style={st.app}>
+          {banner && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 999, background: P.accent, color: "#fff", padding: "calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px", fontSize: 16, textAlign: "center", fontWeight: "bold", boxShadow: "0 2px 12px rgba(0,0,0,.15)" }}>
+              ⏰ {banner}
+            </div>
+          )}
+
+          <div style={st.header}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: "bold", letterSpacing: 1, color: P.accent }}>今日總覽</div>
+                <div style={{ fontSize: 13, color: P.sub, marginTop: 4 }}>{dateStr}</div>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: "bold", color: P.accent, fontFamily: "monospace" }}>{timeStr}</div>
+            </div>
+            
+            {/* 導覽列：新增了 專注 頁籤 */}
+            <div style={{ display: "flex", gap: 8, marginTop: 16, overflowX: "auto", paddingBottom: 4 }}>
+              {[["today", "📋 總覽"], ["focus", "⏳ 專注"], ["routines", "🔁 例行"], ["alarms", "⏰ 提醒"]].map(([k, l]) => (
+                <button key={k} onClick={() => setTab(k)} style={{ ...st.btn, background: tab === k ? P.accent : P.tag, color: tab === k ? "#fff" : P.accent, padding: "7px 16px", fontSize: 13, flexShrink: 0 }}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ==================== 總覽頁籤 ==================== */}
+          {tab === "today" && <>
+            <div style={st.sec}>
+              <div style={st.sH}><span style={st.sT}>⚓ 今日錨點</span><span style={{ fontSize: 12, color: P.sub }}>今天最重要的一件事</span></div>
+              <div style={st.sB}><input style={{ ...st.inp, fontSize: 16, fontWeight: "bold" }} placeholder="今天有什麼不能錯過的事？" value={data.anchor} onChange={e => upd({ anchor: e.target.value })} /></div>
+            </div>
+
+            <div style={{ ...st.sec, border: urgent ? `2px solid ${P.danger}` : `1px solid ${P.border}` }}>
+              <div style={st.sH}><span style={st.sT}>🚪 出門時間</span>{leaveCD() && <span style={{ fontSize: 13, color: urgent ? P.danger : P.green, fontWeight: "bold" }}>{leaveCD()}</span>}</div>
+              <div style={st.sB}>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: P.sub, marginBottom: 4 }}>設定出門時間</div>
+                  <input type="time" style={{...st.inp, maxWidth: 160}} value={data.leaveTime} onChange={e => upd({ leaveTime: e.target.value })} />
+                </div>
+                
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: P.sub, marginBottom: 6 }}>準備所需時間</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    {[15, 30, 45, 60].map(m => (
+                      <button key={m} onClick={() => upd({ prepMinutes: m })} 
+                        style={{ ...st.btn, padding: "6px 12px", fontSize: 14, background: data.prepMinutes === m ? P.accent : P.card, color: data.prepMinutes === m ? "#fff" : P.text, border: `1px solid ${data.prepMinutes === m ? P.accent : P.border}` }}>
+                        {m} 分
+                      </button>
+                    ))}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+                      <input type="number" style={{ ...st.inp, width: 65, padding: "6px", textAlign: "center", fontSize: 14 }} value={data.prepMinutes} onChange={e => upd({ prepMinutes: parseInt(e.target.value) || 0 })} />
+                      <span style={{ fontSize: 13, color: P.sub }}>分</span>
+                    </div>
+                  </div>
+                </div>
+
+                {prepStart() && <div style={{ background: urgent ? "#fbe9e2" : P.tag, borderRadius: 8, padding: "10px 14px", fontSize: 14, marginTop: 16 }}><span style={{ color: P.sub }}>開始準備：</span><strong style={{ color: urgent ? P.danger : P.accent }}>{prepStart()}</strong>{prepCD() && <div style={{ marginTop: 4, fontSize: 13, color: urgent ? P.danger : P.sub }}>{prepCD()}</div>}</div>}
+              </div>
+            </div>
+
+            <div style={st.sec}>
+              <div style={st.sH}><span style={st.sT}>📅 截止倒數</span>{sortedDL[0] && <DayBadge n={daysLeft(sortedDL[0].date)} />}</div>
+              <div style={st.sB}>
+                <div style={{ ...st.row, marginBottom: 12, flexWrap: "wrap" }}>
+                  <input style={{ ...st.inp, flex: 2, minWidth: 100 }} placeholder="事項名稱" value={newDL.name} onChange={e => setNewDL(d => ({ ...d, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addDL()} />
+                  <input type="date" style={{ ...st.inp, flex: 1, minWidth: 100 }} value={newDL.date} onChange={e => setNewDL(d => ({ ...d, date: e.target.value }))} />
+                  <button style={{ ...st.btn, background: P.accent, color: "#fff", whiteSpace: "nowrap" }} onClick={addDL}>+ 新增</button>
+                </div>
+                {sortedDL.length === 0 && <div style={{ color: P.sub, fontSize: 14, textAlign: "center", padding: "8px 0" }}>目前沒有截止事項 ✓</div>}
+                {sortedDL.map((dl, i) => (
+                  <div key={dl.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: i > 0 ? `1px solid ${P.border}` : "none" }}>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: i === 0 ? "bold" : "normal" }}>{dl.name}</div><div style={{ fontSize: 12, color: P.sub, marginTop: 2 }}>{dl.date}</div></div>
+                    <div style={{ ...st.row, gap: 8 }}><DayBadge n={daysLeft(dl.date)} /><button style={{ ...st.btn, background: "#fbe9e2", color: P.danger, padding: "5px 10px", fontSize: 12 }} onClick={() => upd({ deadlines: data.deadlines.filter(d => d.id !== dl.id) })}>✕</button></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={st.sec}>
+              <div style={st.sH}>
+                <span style={st.sT}>📦 暫放區</span>
+                <div style={{ ...st.row, gap: 6 }}>{Object.entries(PRIORITY).map(([k, v]) => { const cnt = data.pendingItems.filter(p => p.priority === k).length; return cnt > 0 ? <span key={k} style={{ background: v.bg, color: v.color, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: "bold" }}>{v.emoji} {cnt}</span> : null; })}</div>
+              </div>
+              <div style={st.sB}>
+                {showClear && <div style={{ background: "#fef3e2", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: P.orange }}>📬 暫放區已超過一週，記得清理一下！<button style={{ ...st.btn, background: P.tag, color: P.accent, padding: "4px 10px", fontSize: 12, marginLeft: 10 }} onClick={() => setShowClear(false)}>知道了</button></div>}
+                <div style={{ ...st.row, marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                  <input style={{ ...st.inp, flex: 2, minWidth: 140 }} placeholder="丟進來，之後再處理…" value={newPending.text} onChange={e => setNewPending(p => ({ ...p, text: e.target.value }))} onKeyDown={e => e.key === "Enter" && addPending()} />
+                  <div style={{ display: "flex", gap: 4 }}>{Object.entries(PRIORITY).map(([k, v]) => <button key={k} onClick={() => setNewPending(p => ({ ...p, priority: k }))} style={{ ...st.btn, padding: "9px 11px", fontSize: 14, background: newPending.priority === k ? v.bg : P.tag, color: newPending.priority === k ? v.color : P.sub, border: `1.5px solid ${newPending.priority === k ? v.color : "transparent"}` }}>{v.emoji}</button>)}</div>
+                  <button style={{ ...st.btn, background: P.accent, color: "#fff" }} onClick={() => addPending()}>丟入</button>
+                </div>
+                {data.pendingItems.length === 0 && <div style={{ color: P.sub, fontSize: 14, textAlign: "center", padding: "8px 0" }}>暫放區是空的 ✓</div>}
+                {sortedPending.map((item, i) => (
+                  <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderTop: i > 0 ? `1px solid ${P.border}` : "none" }}>
+                    <PriBadge value={item.priority} onChange={v => updatePriority(item.id, v)} />
+                    <span style={{ flex: 1, fontSize: 14 }}>{item.text}</span>
+                    <button style={{ ...st.btn, background: P.tag, color: P.accent, padding: "5px 12px", fontSize: 12, whiteSpace: "nowrap" }} onClick={() => removePending(item.id)}>完成 ✓</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>}
+
+          {/* ==================== 專注頁籤 ==================== */}
+          {tab === "focus" && (
+            <div>
+              {/* 清單檢視 */}
+              {!editingFocus && (
+                <div style={st.sec}>
+                  <div style={st.sH}>
+                    <span style={{ ...st.sT, display: 'flex', alignItems: 'center', gap: 6 }}><span style={{fontSize: 16}}>⏳</span> 步驟拆解定時器</span>
+                    <button onClick={() => openFocusEditor()} style={{ background: 'transparent', border: 'none', color: P.sub, fontSize: 14, fontWeight: 'bold', cursor: 'pointer' }}>
+                      ＋ 新增模板
+                    </button>
+                  </div>
+                  <div style={st.sB}>
+                    <div style={{ color: P.sub, fontSize: 13, marginBottom: 16 }}>
+                      對抗完美主義！時間到系統會強制你換下一步。
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {data.focusTemplates.map(tpl => (
+                        <div key={tpl.id} style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+                          {/* 卡片主體 */}
+                          <div style={{ flex: 1, border: `2px solid ${P.accent}40`, borderRadius: 12, padding: 16, display: "flex", gap: 14, background: P.card }}>
+                            <div style={{ fontSize: 32, display: "flex", alignItems: "center" }}>{tpl.icon}</div>
+                            <div>
+                              <div style={{ fontWeight: "bold", fontSize: 16, marginBottom: 6, color: P.accent }}>{tpl.title}</div>
+                              <div style={{ color: P.sub, fontSize: 13, lineHeight: 1.4 }}>{tpl.desc}</div>
+                            </div>
+                          </div>
+                          {/* 右側操作按鈕 */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <button onClick={() => openFocusEditor(tpl)} style={{ flex: 1, background: P.tag, border: "none", borderRadius: 8, width: 44, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+                            <button onClick={() => deleteFocusTemplate(tpl.id)} style={{ flex: 1, background: "#fbe9e2", border: "none", borderRadius: 8, width: 44, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 編輯器檢視 */}
+              {editingFocus && focusDraft && (
+                <div style={st.sec}>
+                  <div style={{ ...st.sH, borderBottom: "none", paddingBottom: 0 }}>
+                    <span style={st.sT}>編輯專注模板</span>
+                    <span style={{ fontSize: 13, color: P.sub }}>總計：{getFocusTotalTime()} 分鐘</span>
+                  </div>
+                  
+                  <div style={st.sB}>
+                    {/* 圖示與標題 */}
+                    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                      <div style={{ position: "relative" }}>
+                        <input 
+                          value={focusDraft.icon} 
+                          onChange={e => setFocusDraft({...focusDraft, icon: e.target.value})} 
+                          style={{ ...st.inp, width: 56, height: 46, padding: 0, textAlign: "center", fontSize: 22, background: P.tag, border: `1px solid ${P.border}` }} 
+                          maxLength="2"
+                        />
+                      </div>
+                      <input 
+                        placeholder="模板名稱 (例如：極簡生存洗沐)"
+                        value={focusDraft.title} 
+                        onChange={e => setFocusDraft({...focusDraft, title: e.target.value})} 
+                        style={{ ...st.inp, flex: 1, fontWeight: "bold", background: P.tag, border: `1px solid ${P.border}` }} 
+                      />
+                    </div>
+                    
+                    {/* 描述 */}
+                    <input 
+                      placeholder="描述 (例如：電力10%專用。不要管細節...)"
+                      value={focusDraft.desc} 
+                      onChange={e => setFocusDraft({...focusDraft, desc: e.target.value})} 
+                      style={{ ...st.inp, width: "100%", marginBottom: 20, background: P.tag, border: `1px solid ${P.border}`, fontSize: 14 }} 
+                    />
+
+                    {/* 步驟清單 */}
+                    <div style={{ fontSize: 13, color: P.sub, fontWeight: "bold", marginBottom: 10 }}>步驟拆解</div>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                      {focusDraft.steps.map((step, idx) => (
+                        <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 8, background: P.tag, padding: "10px 12px", borderRadius: 10 }}>
+                          
+                          {/* 上下移動按鈕 */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            <button onClick={() => focusMoveStep(idx, -1)} disabled={idx === 0} style={{ background: "#7ca0b8", color: "white", border: "none", borderRadius: 4, width: 24, height: 20, fontSize: 12, cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>▲</button>
+                            <button onClick={() => focusMoveStep(idx, 1)} disabled={idx === focusDraft.steps.length - 1} style={{ background: "#7ca0b8", color: "white", border: "none", borderRadius: 4, width: 24, height: 20, fontSize: 12, cursor: idx === focusDraft.steps.length - 1 ? "default" : "pointer", opacity: idx === focusDraft.steps.length - 1 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>▼</button>
+                          </div>
+                          
+                          {/* 步驟名稱 */}
+                          <input 
+                            placeholder="步驟名稱"
+                            value={step.text} 
+                            onChange={e => focusUpdateStep(idx, 'text', e.target.value)} 
+                            style={{ ...st.inp, flex: 1, padding: "8px 10px", background: P.card }} 
+                          />
+                          
+                          {/* 時間 */}
+                          <div style={{ display: "flex", alignItems: "center", background: P.card, borderRadius: 8, border: `1px solid ${P.border}`, padding: "2px 8px" }}>
+                            <input 
+                              type="number" 
+                              value={step.duration} 
+                              onChange={e => focusUpdateStep(idx, 'duration', e.target.value)} 
+                              style={{ width: 30, border: "none", background: "transparent", textAlign: "center", fontSize: 15, outline: "none", padding: "6px 0", color: P.text }} 
+                              min="0"
+                            />
+                            <span style={{ fontSize: 14, color: P.sub, marginLeft: 2 }}>分</span>
+                          </div>
+                          
+                          {/* 刪除 */}
+                          <button onClick={() => focusRemoveStep(idx)} style={{ background: "transparent", border: "none", color: P.danger, fontSize: 16, cursor: "pointer", padding: "0 4px" }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button 
+                      style={{ width: "100%", border: `1.5px dashed ${P.sub}`, background: "transparent", padding: "12px", borderRadius: 10, color: P.sub, fontSize: 14, cursor: "pointer", fontWeight: "bold" }} 
+                      onClick={focusAddStep}
+                    >
+                      ＋ 新增步驟
+                    </button>
+
+                    {/* 底部按鈕 */}
+                    <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+                      <button style={{ ...st.btn, flex: 1, background: P.accent, color: "#fff", fontWeight: "bold", padding: "12px" }} onClick={saveFocusDraft}>儲存模板</button>
+                      <button style={{ ...st.btn, flex: 1, background: P.tag, color: P.accent, padding: "12px" }} onClick={closeFocusEditor}>取消</button>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ==================== 例行頁籤 ==================== */}
+          {tab === "routines" && (
+            <div style={st.sec}>
+              <div style={st.sH}>
+                <span style={st.sT}>🔁 例行事項</span>
+                <button onClick={() => { setShowRoutineForm(v => !v); setEditingId(null); }} style={{ ...st.btn, background: showRoutineForm ? P.tag : P.accent, color: showRoutineForm ? P.accent : "#fff", padding: "6px 14px", fontSize: 13 }}>{showRoutineForm ? "取消" : "＋ 自訂"}</button>
+              </div>
+              <div style={st.sB}>
+                {showRoutineForm && (
+                  <div style={{ background: P.tag, borderRadius: 10, padding: 14, marginBottom: 18 }}>
+                    <div style={{ fontSize: 13, color: P.sub, fontWeight: "bold", marginBottom: 10 }}>新增例行事項</div>
+                    <RoutineFields draft={newRoutine} setDraft={setNewRoutine} />
+                    <button style={{ ...st.btn, background: canSave(newRoutine) ? P.accent : "#c8bfb5", color: "#fff", width: "100%", marginTop: 4 }} onClick={addRoutine}>確認新增</button>
+                  </div>
+                )}
+                {Object.entries(grouped).map(([period, items]) => items.length === 0 ? null : (
+                  <div key={period} style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 12, color: P.sub, fontWeight: "bold", marginBottom: 10, letterSpacing: 1 }}>{PERIOD_LABEL[period]}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {items.map(r => {
+                        const pt = buildPendingText(r);
+                        const already = pendingTexts.includes(pt);
+                        if (editingId === r.id) return (
+                          <div key={r.id} style={{ background: P.tag, borderRadius: 10, padding: 12 }}>
+                            <RoutineFields draft={editDraft} setDraft={setEditDraft} />
+                            <div style={{ ...st.row, gap: 8, marginTop: 8 }}>
+                              <button style={{ ...st.btn, background: canSave(editDraft) ? P.accent : "#c8bfb5", color: "#fff", flex: 1 }} onClick={() => saveEdit(r.id)}>儲存</button>
+                              <button style={{ ...st.btn, background: P.tag, color: P.accent, flex: 1 }} onClick={() => setEditingId(null)}>取消</button>
+                            </div>
+                          </div>
+                        );
+                        return (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <button onClick={() => !already && addPending(pt, "medium")}
+                              style={{ ...st.btn, background: already ? P.green : P.card, color: already ? "#fff" : P.accent, fontSize: 14, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8, border: `1px solid ${already ? P.green : P.border}`, flex: 1, justifyContent: "flex-start" }}>
+                              <span style={{ fontSize: 18 }}>{r.icon}</span>
+                              <div style={{ textAlign: "left" }}>
+                                <div>{r.label}</div>
+                                <div style={{ fontSize: 11, color: already ? "rgba(255,255,255,0.75)" : P.sub, marginTop: 1 }}>{scheduleHint(r)}</div>
+                              </div>
+                              {already && <span style={{ fontSize: 12, marginLeft: "auto" }}>✓</span>}
+                            </button>
+                            <button onClick={() => startEdit(r)} style={{ ...st.btn, background: P.tag, color: P.accent, padding: "8px 11px", fontSize: 13 }}>✏️</button>
+                            <button onClick={() => deleteRoutine(r.id)} style={{ ...st.btn, background: "#fbe9e2", color: P.danger, padding: "8px 11px", fontSize: 13 }}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ padding: "12px 0", borderTop: `1px solid ${P.border}`, fontSize: 13, color: P.sub }}>點擊後加入「暫放區」，完成時打勾即可 ✦</div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== 提醒頁籤 ==================== */}
+          {tab === "alarms" && (
+            <div style={st.sec}>
+              <div style={st.sH}>
+                <span style={st.sT}>⏰ 提醒設定</span>
+                <span style={{ fontSize: 12, color: P.sub }}>{(data.alarms || []).filter(a => a.enabled).length} 個啟用中</span>
+              </div>
+              <div style={st.sB}>
+                <div style={{ background: P.tag, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: P.sub, marginBottom: 16 }}>
+                  💡 需要瀏覽器通知權限，且本頁面保持開啟。
+                </div>
+                
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ ...st.row, marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <input style={{ ...st.inp, flex: 2, minWidth: 120 }} placeholder="自訂提醒名稱" value={newAlarm.label} onChange={e => setNewAlarm(a => ({ ...a, label: e.target.value }))} onKeyDown={e => e.key === "Enter" && addAlarm()} />
+                    <select style={{ ...st.inp, flex: 1, minWidth: 100 }} value={newAlarm.type} onChange={e => setNewAlarm(a => ({ ...a, type: e.target.value }))}>
+                      <option value="fixed">單次</option>
+                      <option value="interval">間隔重複</option>
+                    </select>
+                  </div>
+                  
+                  {newAlarm.type === 'fixed' ? (
+                    <div style={{ ...st.row, flexWrap: "wrap", gap: 8 }}>
+                      <input type="time" style={{ ...st.inp, flex: 1, minWidth: 100 }} value={newAlarm.time} onChange={e => setNewAlarm(a => ({ ...a, time: e.target.value }))} />
+                      <button style={{ ...st.btn, background: P.accent, color: "#fff", whiteSpace: "nowrap" }} onClick={addAlarm}>+ 新增單次</button>
+                    </div>
+                  ) : (
+                    <div style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 8, padding: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, color: P.text }}>每</span>
+                        <input type="number" style={{ ...st.inp, padding: "6px", width: 60, textAlign: "center" }} min={1} value={newAlarm.interval} onChange={e => setNewAlarm({ ...newAlarm, interval: e.target.value })} />
+                        <span style={{ fontSize: 13, color: P.text }}>小時提醒。時段從：</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <input type="time" style={{ ...st.inp, padding: "8px", flex: 1 }} value={newAlarm.start} onChange={e => setNewAlarm({ ...newAlarm, start: e.target.value })} />
+                        <span style={{ fontSize: 12, color: P.sub }}>到</span>
+                        <input type="time" style={{ ...st.inp, padding: "8px", flex: 1 }} value={newAlarm.end} onChange={e => setNewAlarm({ ...newAlarm, end: e.target.value })} />
+                      </div>
+                      <button style={{ ...st.btn, background: P.accent, color: "#fff", width: "100%", padding: "8px" }} onClick={addAlarm}>+ 批次新增</button>
+                    </div>
+                  )}
+                </div>
+                
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: P.sub }}>常用快捷 (一鍵自動加入多個提醒)</div>
+                    <button onClick={() => setEditPresetsMode(!editPresetsMode)} style={{ ...st.btn, background: "transparent", color: P.accent, padding: 0, fontSize: 12 }}>
+                      {editPresetsMode ? "完成編輯" : "✏️ 編輯 / 新增快捷"}
+                    </button>
+                  </div>
+
+                  {!editPresetsMode ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {data.alarmPresets.map(preset => (
+                        <button key={preset.id} onClick={() => applyPreset(preset)}
+                          style={{ ...st.btn, background: P.card, color: P.accent, border: `1px solid ${P.border}`, fontSize: 13, padding: "7px 14px" }}>
+                          ＋ {preset.label} <span style={{opacity:0.6, fontSize:11}}>{preset.type === 'fixed' ? preset.time : `每${preset.interval}h`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ background: P.tag, borderRadius: 8, padding: 12 }}>
+                      {data.alarmPresets.map(preset => (
+                         <div key={preset.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.border}` }}>
+                           <div style={{ fontSize: 13 }}>
+                             <span style={{ fontWeight: "bold", marginRight: 8 }}>{preset.label}</span>
+                             <span style={{ color: P.sub, fontSize:12 }}>{preset.type === 'fixed' ? preset.time : `每 ${preset.interval} 小時 (${preset.start}-${preset.end})`}</span>
+                           </div>
+                           <button onClick={() => deletePreset(preset.id)} style={{ background: "transparent", border: "none", color: P.danger, cursor: "pointer", fontSize: 16 }}>✕</button>
+                         </div>
+                      ))}
+
+                      <div style={{ marginTop: 12, paddingTop: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: "bold", marginBottom: 8 }}>新增快捷</div>
+                        <div style={{ ...st.row, flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                          <input style={{ ...st.inp, flex: 2, minWidth: 100, padding: "8px" }} placeholder="快捷名稱" value={newPreset.label} onChange={e => setNewPreset({ ...newPreset, label: e.target.value })} />
+                          <select style={{ ...st.inp, flex: 1, minWidth: 100, padding: "8px" }} value={newPreset.type} onChange={e => setNewPreset({ ...newPreset, type: e.target.value })}>
+                            <option value="fixed">固定時間</option>
+                            <option value="interval">間隔重複</option>
+                          </select>
+                        </div>
+                        {newPreset.type === 'fixed' ? (
+                          <div style={{ ...st.row, gap: 8 }}>
+                            <input type="time" style={{ ...st.inp, flex: 1, padding: "8px" }} value={newPreset.time} onChange={e => setNewPreset({ ...newPreset, time: e.target.value })} />
+                            <button style={{ ...st.btn, background: P.accent, color: "#fff", padding: "8px 14px" }} onClick={addPreset}>儲存</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection:"column", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 13, color: P.text }}>每</span>
+                              <input type="number" style={{ ...st.inp, padding: "6px", width: 60, textAlign:"center" }} min={1} value={newPreset.interval} onChange={e => setNewPreset({ ...newPreset, interval: e.target.value })} />
+                              <span style={{ fontSize: 13, color: P.text }}>小時產生提醒。時段從：</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input type="time" style={{ ...st.inp, padding: "8px", flex: 1 }} value={newPreset.start} onChange={e => setNewPreset({ ...newPreset, start: e.target.value })} />
+                              <span style={{ fontSize: 12, color: P.sub }}>到</span>
+                              <input type="time" style={{ ...st.inp, padding: "8px", flex: 1 }} value={newPreset.end} onChange={e => setNewPreset({ ...newPreset, end: e.target.value })} />
+                            </div>
+                            <button style={{ ...st.btn, background: P.accent, color: "#fff", width: "100%", padding: "8px 14px" }} onClick={addPreset}>儲存</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {(data.alarms || []).length === 0 && <div style={{ color: P.sub, fontSize: 14, textAlign: "center", padding: "16px 0", borderTop: `1px solid ${P.border}` }}>尚無排定任何提醒 ✦</div>}
+                
+                {(data.alarms || []).length > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 16, borderTop: `1px solid ${P.border}`, paddingTop: 16 }}>
+                    <div style={{ fontSize: 12, color: P.sub }}>今日排定提醒列：</div>
+                    <button onClick={clearAllAlarms} style={{ ...st.btn, background: "#fbe9e2", color: P.danger, padding: "4px 10px", fontSize: 12 }}>
+                      🗑️ 清除全部
+                    </button>
+                  </div>
+                )}
+                
+                {[...(data.alarms || [])].sort((a, b) => a.time.localeCompare(b.time)).map((a, i) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0", borderTop: i > 0 ? `1px solid ${P.border}` : "none" }}>
+                    <div style={{ ...st.row, gap: 12 }}>
+                      <div style={{ fontFamily: "monospace", fontSize: 18, color: a.enabled ? P.accent : P.sub, fontWeight: "bold" }}>{a.time}</div>
+                      <div style={{ fontSize: 14, color: a.enabled ? P.text : P.sub }}>{a.label}</div>
+                    </div>
+                    <div style={{ ...st.row, gap: 8 }}>
+                      <button onClick={() => upd({ alarms: (data.alarms || []).map(al => al.id === a.id ? { ...al, enabled: !al.enabled } : al) })}
+                        style={{ ...st.btn, background: a.enabled ? P.green : P.tag, color: a.enabled ? "#fff" : P.sub, padding: "5px 12px", fontSize: 12 }}>
+                        {a.enabled ? "開啟" : "關閉"}
+                      </button>
+                      <button style={{ ...st.btn, background: "#fbe9e2", color: P.danger, padding: "5px 10px", fontSize: 12 }} onClick={() => upd({ alarms: (data.alarms || []).filter(al => al.id !== a.id) })}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ textAlign: "center", marginTop: 32, fontSize: 12, color: P.sub }}>一次只需要做好一件事 ✦</div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
+
